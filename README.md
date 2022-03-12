@@ -1,6 +1,6 @@
 - 👋 Hi, I’m @savita-upadhyay1
 - 👀 I’m interested in statistics, data science
-- 🌱 I’m currently pursuing Master's in Statistics
+- 🌱 I’m currently pursuing Master's in Statistics at Portland State University
 - 💞️ I’m looking to collaborate on projects in Statistics, Data Science, Spatio-Temporal Models
 - 📫 How to reach me https://www.linkedin.com/in/savitaupadhyay/
 
