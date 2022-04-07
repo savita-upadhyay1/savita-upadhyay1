@@ -1,0 +1,420 @@
+---
+title: 'K Moduli1'
+output:
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+
+options(rgl.useNULL = TRUE)
+library(readxl)
+library(SciViews)
+library(MASS)
+library(ggplot2)
+library(plotly)
+library(tidyr)
+library(dplyr)
+library(reshape2)
+library(scatterplot3d)
+library(investr)
+library(car)
+library(GGally)
+library(arm)
+library(rgl)
+library(qpcR)
+library(MASS)
+library(nlme)
+library(olsrr)
+library(leaps)
+library(stargazer)
+library(lmridge)
+library(factoextra)
+library(glmnet)
+library(reshape2)
+library(pls)
+library(clusterSim)
+library(caret)
+library(tidyverse)
+
+```
+
+Objective: Study K Moduli of material.There are several material properties which effects on K Moduli of a material. The goal of this analysis is to identify the properties which have strong effect on K Moduli of a material.
+
+Data : The data set consists of K Moduli and properties of material which impact K Moduli. Data is stored in a text file.
+
+
+Exploratory Analysis:
+
+Read the data
+
+```{r}
+
+Data <- read.table("/Users/savitaupadhyay/Desktop/PSU Lectures/EXP Design_Theory(Stat 565)/Project STAT565/KModuli.txt",header = TRUE) 
+
+print(paste0("Response is K Moduli. There arec ",ncol(Data)-1," predictors"))
+
+ifelse(sum(is.na(Data))>0,print(paste0(sum(is.na(Data))," datapoints are missing")),print("There are no missing values in the data"))
+
+
+```
+
+Correlation Analysis OF Predictors
+
+Here, we run a correlation on Data. Drop duplicates by removing lower triangle of the correlation matrix. Then subset the variables with correlation greater than 0.5.
+
+```{r}
+corr_analysis <- function(df){
+high_corr_predictors <- cor(df[,colnames(Data)!="K"])
+high_corr_predictors[lower.tri(high_corr_predictors,diag=TRUE)]<-NA
+high_corr_predictors<-as.data.frame(as.table(high_corr_predictors))
+high_corr_predictors <- na.omit(high_corr_predictors)
+high_corr_predictors <- subset(high_corr_predictors,abs(Freq)>=0.9)
+high_corr_predictors <- high_corr_predictors[order(abs(high_corr_predictors$Freq),decreasing = TRUE),]
+print(high_corr_predictors)
+
+matris_HighCorr_pred <- reshape2::acast(high_corr_predictors, Var1~Var2, value.var = "Freq")
+
+corrplot::corrplot(matris_HighCorr_pred,method ="circle",type = "lower")
+}
+
+corr_pred = corr_analysis(Data)
+
+
+```
+As, we can see there is multi-collinearity in the datacset.
+
+Center the data since some predictors have different measurement scale. Also, centering might removes some of the multi-collinearity in the data.
+
+```{r}
+
+Data_centered = as.data.frame(scale(Data,center = T,scale = T))
+corr_predScale = corr_analysis(Data_centered)
+
+```
+Even after centering the data multi-collinearity is not removed from the data.
+
+
+Eigenvalue t(X)X of predictor matrix
+
+
+Solution :
+
+```{r}
+Z <- t(Data_centered[,colnames(Data_centered)!="K"])
+Cz <- cov(Z)
+Spec <- eigen(Cz)
+
+# eigenvalues
+eigenvalues<- Spec$values
+eigenvalues[1935:1940]
+
+
+```
+Eigen values rare very close to zero which indicates the matrix is invertible or there is serious multicollinearity in the data set
+Building a full regression model
+
+```{r}
+model.full = lm(K ~ ., data = Data_centered)
+AIC(model.full);BIC(model.full);ols_mallows_cp(model.full,model.full)
+#all.regression = matrix(ols_step_all_possible(model.full)) 
+#plot(model.full)
+
+```
+## OLS Model-baseline model
+
+Best subset of full regression model
+
+```{r}
+bestSubset = regsubsets(K ~ ., data = Data_centered, nvmax = 10, really.big = T)
+summary(bestSubset)
+res = summary(bestSubset)
+#ols_step_best_subset(model.full)
+
+```
+Selecting predictors, diagnosing and correcting multicollinearity in data
+
+Forward selection algorithm to select a subset regression model.
+
+```{r}
+
+modelstep.forward = step(lm(K ~ 1, data = Data_centered), direction="forward", scope=formula(model.full))
+ols_step_forward_p(model.full, details = T)
+
+```
+# Model adequacy, outliers and leverage points
+
+```{r}
+plot(modelstep.forward )
+
+# Standardized residual
+infl2 = influence(modelstep.forward )
+infl2$hat = rep(0,length(modelstep.forward $residuals))
+rstandard(modelstep.forward , infl = infl2)
+
+
+ols_plot_resid_stud(modelstep.forward ) # from olsrr package
+
+# R-studentized residual
+qqnorm(resid(modelstep.forward ));qqline(resid(modelstep.forward ))
+plot(fitted(modelstep.forward ),resid(modelstep.forward ),pch = 16);abline(0, 0,lty = 2)
+```
+
+Backward elimination algorithm to select a subset regression model.
+
+```{r}
+
+modelstep.backward.res = ols_step_backward_p(model.full, details = T)
+plot(modelstep.backward.res)
+
+model.step.backward = stepAIC(model.full, direction = "backward", trace = T)
+summary(model.step.backward)
+
+model.step.backward1 = step(model.full, direction="backward", scope=formula(lm(K ~ 1, data = Data_centered)))
+summary(model.step.backward1)
+```
+# Model adequacy, outliers and leverage points
+
+```{r}
+plot(model.step.backward)
+
+# Standardized residual
+infl2 = influence(model.step.backward)
+infl2$hat = rep(0,length(model.step.backward$residuals))
+rstandard(model.step.backward, infl = infl2)
+
+
+ols_plot_resid_stud(model.step.backward) # from olsrr package
+
+# R-studentized residual
+qqnorm(resid(model.step.backward));qqline(resid(model.step.backward))
+plot(fitted(model.step.backward),resid(model.step.backward),pch = 16);abline(0, 0,lty = 2)
+```
+```{r}
+plot(model.step.backward1)
+
+# Standardized residual
+infl2 = influence(model.step.backward1)
+infl2$hat = rep(0,length(model.step.backward1$residuals))
+rstandard(model.step.backward1, infl = infl2)
+
+
+ols_plot_resid_stud(model.step.backward1) # from olsrr package
+
+# R-studentized residual
+qqnorm(resid(model.step.backward1));qqline(resid(model.step.backward1))
+plot(fitted(model.step.backward1),resid(model.step.backward1),pch = 16);abline(0, 0,lty = 2)
+```
+
+
+Step-wise regression to select a subset regression model.
+
+# Solution
+```{r}
+model.step.both = step(model.full, direction="both", scope=formula(model.full))
+ols_step_both_p(model.full, details = T)
+ols_step_both_aic(model.full, details = T)
+
+```
+
+```{r}
+
+lambdas = 10^seq(2, -3, by = -.1)
+model.ridge = glmnet(Data_centered[,-1], Data_centered$K, nlambda = 25, alpha = 0, family = 'gaussian', lambda = lambdas)
+ridge.Par = as.data.frame(as.matrix(cbind(lambdas,t(model.ridge$beta))))
+ridge.plotData = melt(ridge.Par,id = "lambdas",measure.vars = colnames(ridge.Par)[2:62])
+ggplot(ridge.plotData) +
+  geom_line(aes(y = value, x = lambdas, group = variable, color = variable),size = 1) +
+  geom_point(aes(y = value, x = lambdas, group = variable, color = variable),size = 2) +
+  labs(title="Ridge")
+
+# select a good lambda
+model.cvRidge = cv.glmnet(as.matrix(Data_centered[,-1]), Data_centered$K, alpha = 0, lambda = lambdas)
+plot(model.cvRidge)
+model.cvRidge$lambda.min
+
+model.ridge.opt = glmnet(as.matrix(Data_centered[,-1]), Data_centered$K, nlambda = 25, alpha = 0, family = 'gaussian', lambda = model.cvRidge$lambda.min)
+summary(model.ridge.opt)
+model.ridge.opt$beta
+colnames(Data_centered)[1]<-"KModuli"
+model.ridge2 = lmridge(KModuli ~ ., data = Data_centered, K = model.cvRidge$lambda.min)
+summary(model.ridge2)
+
+```
+
+Inflation in the residual sum of squares  resulted from the use of ridge regression
+
+
+```{r}
+infocr(model.ridge2)
+sum(press(model.ridge2))
+
+
+#use fitted best model to make predictions
+K_predicted <- predict(model.ridge2, s = model.cvRidge$lambda.min, newx = Data_centered[,-1])
+
+#find SST and SSE
+sst <- sum((Data_centered$K - mean(Data_centered$K))^2)
+sse <- sum((K_predicted - Data_centered$K )^2)
+
+print("inflation in the residual sum of squares = ")
+sse - anova(model.full)$'Sum Sq'[ncol(Data_centered)]
+
+```
+Reduction in R2  resulted from the use of ridge regression
+
+```{r}
+#find R-Squared
+rsq <- 1 - sse/sst
+rsq
+
+print("reduction in the r-squares = ")
+0.9239-rsq
+
+```
+
+# PCR
+
+```{r}
+
+
+Data %>% dim
+Data.test <- Data[1451:1940,]
+Data.descr <- Data[1:1450,]
+
+Data.K <- Data.descr$K
+Data.descr$K <- NULL
+
+res <- cor(Data, method="pearson")
+corrplot::corrplot(res, method= "color", order = "hclust", tl.pos = 'n')
+
+#normalization
+
+Data.norm <- data.Normalization(Data.descr, type="n1", normalization="column")
+Data.K.norm <- data.Normalization(Data.K, type="n1", normalization="column")
+
+#PCA
+Data.pca1 <- prcomp(Data.norm ,center = TRUE, scale = TRUE)
+summary(Data.pca1, loadings = TRUE)
+
+#99% - 27 comp
+#95%  -16 components
+#90% -12 components
+
+#Principal components
+
+res1 <- cor(Data.pca1$x, method="pearson")
+corrplot::corrplot(res1, method= "color", order = "hclust", tl.pos = 'n')
+
+plot(summary(Data.pca1)$importance[3,])
+
+
+#Linear regression with principal components
+
+#scatterplot
+pcs <- as.data.frame(Data.pca1$x)
+plot(Data.K.norm, pcs$PC1)
+
+
+#pcr
+ols.data <- cbind(Data.K.norm,pcs)
+lmodel <- lm(Data.K.norm ~ ., data = ols.data)
+summary(lmodel)
+
+#The estimators of coefficients that have been obtained (βZ
+#), as stated in the introduction can be multiplied by matrix V
+# to obtain βX
+
+
+
+beta.Z <- as.matrix(lmodel$coefficients[2:62])
+V <- as.matrix(Data.pca1$rotation)
+beta.X <- V %*% beta.Z
+beta.X
+
+#Calculations using pls
+
+Data.test.norm <- data.Normalization(Data.test[,2:62])
+Data.test.K.norm <- data.Normalization(Data.test[,1])
+fit <- pcr(Data.K.norm ~., data = cbind(Data.norm, Data.K.norm))
+
+K.pred.test1 <- predict(fit,newdata=Data.test.norm)
+K.pred.test1%>%  dim
+
+K.pred.test1 <- K.pred.test1[1:490,1,61]
+dim(K.pred.test1) <- c(490,1)
+
+pred.test2 <- as.matrix(Data.test.norm)
+K.pred.test2 <- pred.test2 %*% beta.X
+
+plot(K.pred.test1, K.pred.test2)
+
+
+#Choosing appropriate no. of PCs
+validationplot(fit, val.type="MSEP", cex.axis=0.7)
+axis(side = 1, at = c(6), cex.axis=0.7)
+abline(v = 6, col = "blue", lty = 3)
+
+
+#cross validation  
+fit2 <- pcr(Data.K.norm ~., data = cbind(Data.norm, Data.K.norm), validation = "CV")
+validationplot(fit2, val.type="MSEP", cex.axis=0.7)
+axis(side = 1, at = c(6), cex.axis=0.7)
+abline(v = 6, col = "blue", lty = 3)
+
+
+
+#Building pcr model using 6 components
+model.pcr = pcr(Data.K.norm~., data = cbind(Data.norm, Data.K.norm), ncomp = 6, validation = "CV")
+summary(model.pcr)
+model.pcr$projection
+validationplot(model.pcr,val.type = "R2")
+abline(v=1:9,lty = 3, lwd = 0.2)
+
+
+```
+```{r}
+Data_centered %>% dim
+Data.test <- Data[1451:1940,]
+Data.train <- Data[1:1450,]
+lassoGrid =  expand.grid(alpha = 1, lambda = c(seq(0.1, 1.5, by = 0.1), seq(2,5,1), seq(5,20,2)))
+
+# specifying the CV technique which will be passed into the train() function later and number parameter is the "k" in K-fold cross validation
+train_control = trainControl(method = "cv", number = 5, search = "grid")
+
+# training a Lasso Regression model while tuning parameters
+model = train(K~., data = Data.train, method = "glmnet", trControl = train_control, tuneGrid = lassoGrid)
+
+#use model to make predictions on test data
+pred_K = predict(model, Data.test)
+
+# performance metrics on the test data
+test_K = Data.test[, 1]
+mean((test_K - pred_K)^2) #mse - Mean Squared Error
+
+caret::RMSE(test_K, pred_K) #rmse - Root Mean Squared Error
+
+
+
+#Final Coefficients are mentioned below:
+lasso = as.data.frame.matrix(coef(model$finalModel, model$finalModel$lambdaOpt))
+lasso = t(lasso)
+(lasso[1,(lasso[1,]!=0)])
+```
+
+
+# LASSO
+
+```{r}
+lambdas = 10^seq(1, -3, by = -.05)
+model.LASSO = cv.glmnet(as.matrix(Data_centered[,-1]), Data_centered$K, alpha = 1, lambda = lambdas)
+plot(model.LASSO)
+lasso.Par = as.data.frame(as.matrix(cbind(lambdas,t(model.LASSO$glmnet.fit$beta))))
+lasso.plotData = melt(lasso.Par,id = "lambdas",measure.vars = colnames(lasso.Par)[2:62])
+ggplot(lasso.plotData) +
+  geom_line(aes(y = value, x = lambdas, group = variable, color = variable),size = 1) +
+  geom_point(aes(y = value, x = lambdas, group = variable, color = variable),size = 2) +
+  labs(title="LASSO")
+```
+
+
